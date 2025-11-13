@@ -9,11 +9,20 @@ class TerminalRestorableState: Codable {
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
     let effectiveFullscreenMode: FullscreenMode?
+    let isQuickTerminal: Bool?
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
+        self.isQuickTerminal = false
+    }
+
+    init(from quickController: QuickTerminalController) {
+        self.focusedSurface = quickController.focusedSurface?.id.uuidString
+        self.surfaceTree = quickController.surfaceTree
+        self.effectiveFullscreenMode = nil
+        self.isQuickTerminal = true
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -31,6 +40,7 @@ class TerminalRestorableState: Codable {
         self.surfaceTree = v.value.surfaceTree
         self.focusedSurface = v.value.focusedSurface
         self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
+        self.isQuickTerminal = v.value.isQuickTerminal
     }
 
     func encode(with coder: NSCoder) {
@@ -79,6 +89,13 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // Decode the state. If we can't decode the state, then we can't restore.
         guard let state = TerminalRestorableState(coder: state) else {
             completionHandler(nil, TerminalRestoreError.stateDecodeFailed)
+            return
+        }
+
+        if state.isQuickTerminal == true {
+            print("*** SN: restoring isQuickTerminal")
+            (NSApp.delegate as? AppDelegate)?.pendingQuickTerminalRestoredState = state
+            completionHandler(nil, nil)
             return
         }
 

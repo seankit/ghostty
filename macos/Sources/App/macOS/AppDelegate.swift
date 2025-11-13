@@ -92,10 +92,12 @@ class AppDelegate: NSObject,
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
+    var pendingQuickTerminalRestoredState: TerminalRestorableState?
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
     private(set) lazy var quickController = QuickTerminalController(
         ghostty,
-        position: derivedConfig.quickTerminalPosition
+        position: derivedConfig.quickTerminalPosition,
+        surfaceTree: pendingQuickTerminalRestoredState?.surfaceTree
     )
 
     /// Manages updates

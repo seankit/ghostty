@@ -27,6 +27,10 @@ class QuickTerminalController: BaseTerminalController {
     /// Non-nil if we have hidden dock state.
     private var hiddenDock: HiddenDock? = nil
 
+    /// This is set to false by init if the window managed by this controller should not be restorable.
+    /// For example, terminals executing custom scripts are not restorable.
+    private var restorable: Bool = true
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
     
@@ -39,6 +43,14 @@ class QuickTerminalController: BaseTerminalController {
          surfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
     ) {
         self.position = position
+
+        // The window we manage is not restorable if we've specified a command
+        // to execute. We do this because the restored window is meaningless at the
+        // time of writing this: it'd just restore to a shell in the same directory
+        // as the script. We may want to revisit this behavior when we have scrollback
+        // restoration.
+        self.restorable = (base?.command ?? "") == ""
+
         self.derivedConfig = DerivedConfig(ghostty.config)
 
         // Important detail here: we initialize with an empty surface tree so
@@ -106,7 +118,11 @@ class QuickTerminalController: BaseTerminalController {
 
         // The quick window is not restorable (yet!). "Yet" because in theory we can
         // make this restorable, but it isn't currently implemented.
-        window.isRestorable = false
+        window.isRestorable = restorable
+        if (restorable) {
+            window.restorationClass = TerminalWindowRestoration.self
+            window.identifier = .init(String(describing: TerminalWindowRestoration.self))
+        }
 
         // Setup our configured appearance that we support.
         syncAppearance()
@@ -149,6 +165,8 @@ class QuickTerminalController: BaseTerminalController {
         // applies if we can be seen.
         guard visible else { return }
 
+        print("*** SN: QuickTerminalController.windowDidBecomeKey")
+
         // Re-hide the dock if we were hiding it before.
         hiddenDock?.hide()
     }
@@ -161,6 +179,9 @@ class QuickTerminalController: BaseTerminalController {
         // windowDidResignKey will also get called after animateOut so this
         // ensures we don't run logic twice.
         guard visible else { return }
+
+        print("*** SN: QuickTerminalController.windowDidResignKey")
+        //        invalidateRestorableState()
 
         // We don't animate out if there is a modal sheet being shown currently.
         // This lets us show alerts without causing the window to disappear.
@@ -236,6 +257,12 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
+        print("*** SN: QuickTerminalController.willEncodeRestorableState")
+        let data = TerminalRestorableState(from: self)
+        data.encode(with: state)
+    }
+
     // MARK: Base Controller Overrides
 
     override func focusSurface(_ view: Ghostty.SurfaceView) {
@@ -256,6 +283,10 @@ class QuickTerminalController: BaseTerminalController {
 
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
+
+        // Whenever our surface tree changes in any way (new split, close split, etc.)
+        // we want to invalidate our state.
+        invalidateRestorableState()
 
         // If our surface tree is nil then we animate the window out. We
         // defer reinitializing the tree to save some memory here.
@@ -340,12 +371,37 @@ class QuickTerminalController: BaseTerminalController {
         // If our surface tree is empty then we initialize a new terminal. The surface
         // tree can be empty if for example we run "exit" in the terminal and force
         // animate out.
-        if surfaceTree.isEmpty,
-           let ghostty_app = ghostty.app {
+        if let pendingRestorableState = (NSApp.delegate as? AppDelegate)?.pendingQuickTerminalRestoredState {
+            print("*** SN: pendingRestorableState")
+
+            surfaceTree = pendingRestorableState.surfaceTree
+
+            // Setup our restored state on the controller
+            // Find the focused surface in surfaceTree
+            if let focusedStr = pendingRestorableState.focusedSurface {
+                var foundView: Ghostty.SurfaceView?
+                for view in surfaceTree {
+                    if view.id.uuidString == focusedStr {
+                        foundView = view
+                        break
+                    }
+                }
+                let focusedView = foundView ?? surfaceTree.root?.leftmostLeaf()
+
+                if let view = focusedView {
+                    focusedSurface = view
+                    focusSurface(view) // circular?
+                }
+            }
+        } else if surfaceTree.isEmpty,
+                  let ghostty_app = ghostty.app {
+            print("*** SN: surfaceTree.isEmpty")
             let view = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
             surfaceTree = SplitTree(view: view)
             focusedSurface = view
         }
+
+        (NSApp.delegate as? AppDelegate)?.pendingQuickTerminalRestoredState = nil
 
         // Animate the window in
         animateWindowIn(window: window, from: position)
