@@ -935,7 +935,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         window.isRestorable = restorable
         if (restorable) {
             window.restorationClass = TerminalWindowRestoration.self
-            window.identifier = .init(String(describing: TerminalWindowRestoration.self))
+            window.identifier = .terminalWindow
         }
 
         // If we have only a single surface (no splits) and there is a default size then

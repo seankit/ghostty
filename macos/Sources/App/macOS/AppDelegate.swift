@@ -92,12 +92,10 @@ class AppDelegate: NSObject,
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
-    var pendingQuickTerminalRestoredState: TerminalRestorableState?
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
     private(set) lazy var quickController = QuickTerminalController(
         ghostty,
-        position: derivedConfig.quickTerminalPosition,
-        surfaceTree: pendingQuickTerminalRestoredState?.surfaceTree
+        position: derivedConfig.quickTerminalPosition
     )
 
     /// Manages updates
@@ -799,7 +797,9 @@ class AppDelegate: NSObject,
         // configuration. This is the only way to carefully control whether macOS invokes the
         // state restoration system.
         switch (config.windowSaveState) {
-        case "never": UserDefaults.standard.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+        case "never":
+            UserDefaults.standard.setValue(false, forKey: "NSQuitAlwaysKeepsWindows")
+            QuickTerminalStateManager.clearState()
         case "always": UserDefaults.standard.setValue(true, forKey: "NSQuitAlwaysKeepsWindows")
         case "default": fallthrough
         default: UserDefaults.standard.removeObject(forKey: "NSQuitAlwaysKeepsWindows")

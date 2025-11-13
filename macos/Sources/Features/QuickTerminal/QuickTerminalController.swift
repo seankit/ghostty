@@ -31,6 +31,10 @@ class QuickTerminalController: BaseTerminalController {
     /// For example, terminals executing custom scripts are not restorable.
     private var restorable: Bool = true
 
+    /// State from the previous session, loaded during init and restored during `animateIn()`.
+    /// Contains the surface tree and focused surface. Only loaded if `windowSaveState` is not set to `never`.
+    private var restoredState: TerminalRestorableState? = nil
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
     
@@ -50,6 +54,8 @@ class QuickTerminalController: BaseTerminalController {
         // as the script. We may want to revisit this behavior when we have scrollback
         // restoration.
         self.restorable = (base?.command ?? "") == ""
+
+        self.restoredState = QuickTerminalStateManager.loadState()
 
         self.derivedConfig = DerivedConfig(ghostty.config)
 
@@ -121,7 +127,7 @@ class QuickTerminalController: BaseTerminalController {
         window.isRestorable = restorable
         if (restorable) {
             window.restorationClass = TerminalWindowRestoration.self
-            window.identifier = .init(String(describing: TerminalWindowRestoration.self))
+            window.identifier = .quickTerminalWindow
         }
 
         // Setup our configured appearance that we support.
@@ -165,8 +171,6 @@ class QuickTerminalController: BaseTerminalController {
         // applies if we can be seen.
         guard visible else { return }
 
-        print("*** SN: QuickTerminalController.windowDidBecomeKey")
-
         // Re-hide the dock if we were hiding it before.
         hiddenDock?.hide()
     }
@@ -180,8 +184,7 @@ class QuickTerminalController: BaseTerminalController {
         // ensures we don't run logic twice.
         guard visible else { return }
 
-        print("*** SN: QuickTerminalController.windowDidResignKey")
-        //        invalidateRestorableState()
+        updateRestorableState()
 
         // We don't animate out if there is a modal sheet being shown currently.
         // This lets us show alerts without causing the window to disappear.
@@ -258,7 +261,6 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     func window(_ window: NSWindow, willEncodeRestorableState state: NSCoder) {
-        print("*** SN: QuickTerminalController.willEncodeRestorableState")
         let data = TerminalRestorableState(from: self)
         data.encode(with: state)
     }
@@ -285,8 +287,8 @@ class QuickTerminalController: BaseTerminalController {
         super.surfaceTreeDidChange(from: from, to: to)
 
         // Whenever our surface tree changes in any way (new split, close split, etc.)
-        // we want to invalidate our state.
-        invalidateRestorableState()
+        // we want to update our state.
+        updateRestorableState()
 
         // If our surface tree is nil then we animate the window out. We
         // defer reinitializing the tree to save some memory here.
@@ -368,40 +370,26 @@ class QuickTerminalController: BaseTerminalController {
         // Set previous active space
         self.previousActiveSpace = CGSSpace.active()
 
-        // If our surface tree is empty then we initialize a new terminal. The surface
-        // tree can be empty if for example we run "exit" in the terminal and force
-        // animate out.
-        if let pendingRestorableState = (NSApp.delegate as? AppDelegate)?.pendingQuickTerminalRestoredState {
-            print("*** SN: pendingRestorableState")
+        // If we have restored state to load, use that to setup the controller
+        // by using the state's surface tree and finding it's focused surface
+        if let restoredState {
+            surfaceTree = restoredState.surfaceTree
 
-            surfaceTree = pendingRestorableState.surfaceTree
+            if let focusedStr = restoredState.focusedSurface,
+               let focusedView = surfaceTree.first(where: { $0.id.uuidString == focusedStr }) {
 
-            // Setup our restored state on the controller
-            // Find the focused surface in surfaceTree
-            if let focusedStr = pendingRestorableState.focusedSurface {
-                var foundView: Ghostty.SurfaceView?
-                for view in surfaceTree {
-                    if view.id.uuidString == focusedStr {
-                        foundView = view
-                        break
-                    }
-                }
-                let focusedView = foundView ?? surfaceTree.root?.leftmostLeaf()
-
-                if let view = focusedView {
-                    focusedSurface = view
-                    focusSurface(view) // circular?
-                }
+                focusedSurface = focusedView
+                super.focusSurface(focusedView)
             }
         } else if surfaceTree.isEmpty,
                   let ghostty_app = ghostty.app {
-            print("*** SN: surfaceTree.isEmpty")
+            // If our surface tree is empty then we initialize a new terminal. The surface
+            // tree can be empty if for example we run "exit" in the terminal and force
+            // animate out.
             let view = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
             surfaceTree = SplitTree(view: view)
             focusedSurface = view
         }
-
-        (NSApp.delegate as? AppDelegate)?.pendingQuickTerminalRestoredState = nil
 
         // Animate the window in
         animateWindowIn(window: window, from: position)
@@ -643,6 +631,15 @@ class QuickTerminalController: BaseTerminalController {
         alert.alertStyle = .warning
         alert.beginSheetModal(for: window)
     }
+
+    private func updateRestorableState() {
+        guard restorable, ghostty.config.windowSaveState != "never" else { return }
+        print("*** SN: updateRestorableState")
+        invalidateRestorableState()
+        let state = TerminalRestorableState(from: self)
+        QuickTerminalStateManager.save(state: state)
+    }
+
     // MARK: First Responder
 
     @IBAction override func closeWindow(_ sender: Any) {

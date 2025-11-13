@@ -2,27 +2,38 @@ import Cocoa
 
 /// The state stored for terminal window restoration.
 class TerminalRestorableState: Codable {
+    enum TerminalType: Codable {
+        case regular(fullscreenMode: FullscreenMode?)
+        case quick
+    }
+
     static let selfKey = "state"
     static let versionKey = "version"
-    static let version: Int = 5
+    static let version: Int = 6
 
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
-    let effectiveFullscreenMode: FullscreenMode?
-    let isQuickTerminal: Bool?
+    let terminalType: TerminalType
+
+    var effectiveFullscreenMode: FullscreenMode? {
+        switch terminalType {
+        case .regular(let fullscreenMode):
+            return fullscreenMode
+        case .quick:
+            return nil
+        }
+    }
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
-        self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
-        self.isQuickTerminal = false
+        self.terminalType = .regular(fullscreenMode: controller.fullscreenStyle?.fullscreenMode)
     }
 
     init(from quickController: QuickTerminalController) {
         self.focusedSurface = quickController.focusedSurface?.id.uuidString
         self.surfaceTree = quickController.surfaceTree
-        self.effectiveFullscreenMode = nil
-        self.isQuickTerminal = true
+        self.terminalType = .quick
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -39,8 +50,7 @@ class TerminalRestorableState: Codable {
 
         self.surfaceTree = v.value.surfaceTree
         self.focusedSurface = v.value.focusedSurface
-        self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
-        self.isQuickTerminal = v.value.isQuickTerminal
+        self.terminalType = v.value.terminalType
     }
 
     func encode(with coder: NSCoder) {
@@ -56,6 +66,11 @@ enum TerminalRestoreError: Error {
     case windowDidNotLoad
 }
 
+extension NSUserInterfaceItemIdentifier {
+    static let terminalWindow = NSUserInterfaceItemIdentifier("TerminalWindow")
+    static let quickTerminalWindow = NSUserInterfaceItemIdentifier("QuickTerminalWindow")
+}
+
 /// The NSWindowRestoration implementation that is called when a terminal window needs to be restored.
 /// The encoding of a terminal window is handled elsewhere (usually NSWindowDelegate).
 class TerminalWindowRestoration: NSObject, NSWindowRestoration {
@@ -65,7 +80,8 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         completionHandler: @escaping (NSWindow?, Error?) -> Void
     ) {
         // Verify the identifier is what we expect
-        guard identifier == .init(String(describing: Self.self)) else {
+//        guard [.terminalWindow, .quickTerminalWindow].contains(identifier) else {
+        guard [.terminalWindow].contains(identifier) else {
             completionHandler(nil, TerminalRestoreError.identifierUnknown)
             return
         }
@@ -92,9 +108,11 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
-        if state.isQuickTerminal == true {
-            print("*** SN: restoring isQuickTerminal")
-            (NSApp.delegate as? AppDelegate)?.pendingQuickTerminalRestoredState = state
+        // If a quick terminal window is being restored, save the state
+        // and show it the same way as the keybinding does, by going through AppDelegate.
+        if case .quick = state.terminalType {
+            QuickTerminalStateManager.save(state: state)
+            appDelegate.toggleQuickTerminal(self)
             completionHandler(nil, nil)
             return
         }
