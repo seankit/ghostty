@@ -32,7 +32,6 @@ class QuickTerminalController: BaseTerminalController {
     private var restorable: Bool = true
 
     /// State from the previous session, loaded during init and restored during `animateIn()`.
-    /// Contains the surface tree and focused surface. Only loaded if `windowSaveState` is not set to `never`.
     private var restoredState: TerminalRestorableState? = nil
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
@@ -371,7 +370,7 @@ class QuickTerminalController: BaseTerminalController {
         self.previousActiveSpace = CGSSpace.active()
 
         // If we have restored state to load, use that to setup the controller
-        // by using the state's surface tree and finding it's focused surface
+        // from the state's surface tree and finding the focused surface
         if let restoredState {
             surfaceTree = restoredState.surfaceTree
 

@@ -17,7 +17,7 @@ enum QuickTerminalStateManager {
               let bridge = try? NSKeyedUnarchiver.unarchivedObject(
                 ofClass: CodableBridge<TerminalRestorableState>.self,
                 from: data
-              ) else {
+        ) else {
             return nil
         }
 
