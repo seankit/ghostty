@@ -634,7 +634,6 @@ class QuickTerminalController: BaseTerminalController {
 
     private func updateRestorableState() {
         guard restorable, ghostty.config.windowSaveState != "never" else { return }
-        print("*** SN: updateRestorableState")
         invalidateRestorableState()
         let state = TerminalRestorableState(from: self)
         QuickTerminalStateManager.save(state: state)

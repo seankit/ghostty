@@ -80,8 +80,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         completionHandler: @escaping (NSWindow?, Error?) -> Void
     ) {
         // Verify the identifier is what we expect
-//        guard [.terminalWindow, .quickTerminalWindow].contains(identifier) else {
-        guard [.terminalWindow].contains(identifier) else {
+        guard [.terminalWindow, .quickTerminalWindow].contains(identifier) else {
             completionHandler(nil, TerminalRestoreError.identifierUnknown)
             return
         }
@@ -108,12 +107,17 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
-        // If a quick terminal window is being restored, save the state
-        // and show it the same way as the keybinding does, by going through AppDelegate.
+        // Quick terminals restore through AppDelegate.toggleQuickTerminal(), which
+        // loads this state from QuickTerminalStateManager during animateIn() to restore surfaces.
         if case .quick = state.terminalType {
             QuickTerminalStateManager.save(state: state)
-            appDelegate.toggleQuickTerminal(self)
-            completionHandler(nil, nil)
+
+            // Defer toggle until next runloop so that the quick terminal
+            // can properly setup during it's `animateIn()`
+            DispatchQueue.main.async {
+                appDelegate.toggleQuickTerminal(self)
+                completionHandler(nil, nil)
+            }
             return
         }
 
